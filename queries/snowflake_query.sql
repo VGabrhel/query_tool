@@ -1,0 +1,4 @@
+SELECT 
+    *
+FROM 
+    KEBOOLA_9900.WORKSPACE_94831764."products";

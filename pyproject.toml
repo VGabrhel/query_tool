@@ -1,0 +1,57 @@
+[tool.poetry]
+name = "snowflake-bigquery-query-tool"
+version = "0.0.1"
+description = "Connect and query data from Snowflake and BigQuery"
+authors = [
+    "Vit Gabrhel <v.gabrheů@gmail.com>",
+]
+readme = "README.md"
+packages = [
+    { include = "*", from = "src" }
+]
+
+[tool.poetry.dependencies]
+python = ">=3.9,<3.13"
+requests = "^2.31.0"
+openai = "^1.11.1"
+pandas = "^2.2.0"
+python-dotenv = "^1.0.1"
+black = "^24.2.0"
+flake8 = "^7.0.0"
+jupyter = "^1.0.0"
+snowflake-connector-python = "^3.7.1"
+
+isort = "^5.13.2"
+seaborn = "^0.13.2"
+db-dtypes = "^1.3.1"
+[tool.poetry.group.dev]
+optional = true
+
+# Currently, also utilized by CI/CD pipelines
+[tool.poetry.group.dev.dependencies]
+black = "^24.2.0"
+flake8 = "^7.0.0"
+pytest = "^7.4.0"
+ipykernel = "^6.29.3"
+
+[tool.poetry.group.local]
+optional = true
+
+[tool.poetry.group.local.dependencies]
+jupyter = "^1.0.0"
+
+[tool.poetry.group.additional.dependencies]
+mlxtend = "^0.23.1"
+sqlalchemy = "^2.0.29"
+psycopg2-binary = "^2.9.9"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+
+[flake8]
+max-line-length = 100
