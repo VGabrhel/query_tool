@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from google.cloud import bigquery
 import snowflake.connector
 
-def load_env_variables(env_file=".env"):
+def load_env_variables(env_file="config/.env"):
     """
     Loads environment variables from the specified .env file.
     

@@ -70,6 +70,8 @@ Navigate to root folder. First, copy `.env.example` file and name it as `.env`. 
 ### Virtual Environment
 The project uses [Poetry](https://python-poetry.org/) for dependency management. Once you have [Poetry](https://python-poetry.org/) installed, run `poetry install` in the root directory of the project. It will create a virtual environment and install all the dependencies. To access the virtual environment, run `poetry shell` in the directory.
 
+Add `export PATH="$HOME/.local/bin:$PATH"` to the terminal to locate poetry if needed.
+
 #### Linters and Code Formatters
 In project, we use [black](https://github.com/psf/black) and [flake8](https://flake8.pycqa.org/en/latest/). Both have corresponding configuration inside `pyproject.toml` file.
 

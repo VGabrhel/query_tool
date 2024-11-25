@@ -128,6 +128,11 @@ ENV/
 env.bak/
 venv.bak/
 
+# Config
+config/.env
+config/bigquery_credentials.json
+config/snowflake_credentials.json
+
 # Spyder project settings
 .spyderproject
 .spyproject

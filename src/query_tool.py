@@ -1,13 +1,13 @@
 import os
 import pandas as pd
-from time import time
+import time
 from google.cloud import bigquery
 import snowflake.connector
 from dotenv import load_dotenv
 import logging
 
 # Load environment variables
-load_dotenv()
+load_dotenv('config/.env')
 
 class DatabaseQueryTool:
     """
@@ -39,7 +39,7 @@ class DatabaseQueryTool:
 
         # DataFrames to store logs
         self.import_logs = pd.DataFrame(
-            columns=["source", "query", "rows", "columns", "data_mb", "cost_eur", "time_sec", "timestamp"]
+            columns=["source", "query", "rows", "columns", "data_mb", "time_sec", "timestamp"]
         )
         self.join_logs = pd.DataFrame(
             columns=["df1_shape", "df2_shape", "join_columns", "output_columns", "result_shape", "duplicate_rows", "timestamp"]
@@ -81,7 +81,7 @@ class DatabaseQueryTool:
 
     def write_to_snowflake(self, df, table_name):
         """
-        Writes a pandas DataFrame to a Snowflake table.
+        Writes a pandas DataFrame to a Snowflake table with lowercase column names.
 
         Args:
             df (pd.DataFrame): The pandas DataFrame to write.
@@ -91,14 +91,27 @@ class DatabaseQueryTool:
         cursor = conn.cursor()
 
         try:
-            # Check if the table exists, create it if it doesn't
-            cursor.execute(f"CREATE TABLE IF NOT EXISTS {table_name} ({', '.join([f'{col} STRING' for col in df.columns])})")
+            # Convert datetime columns to string before insertion
+            for col in df.columns:
+                if pd.api.types.is_datetime64_any_dtype(df[col]):  # Check if the column is a timestamp/datetime
+                    df[col] = df[col].dt.strftime('%Y-%m-%d %H:%M:%S')  # Convert to string format
+
+            # Handle NaN values by replacing them with None (interpreted as NULL in Snowflake)
+            df = df.where(pd.notnull(df), None)
+
+            # Convert column names to lowercase
+            df.columns = [col.lower() for col in df.columns]
+
+            # Check if the table exists, create it if it doesn't (with lowercase column names)
+            create_table_statement = f"CREATE TABLE IF NOT EXISTS {table_name} (" + \
+                ", ".join([f'"{col}" STRING' for col in df.columns]) + ")"
+            cursor.execute(create_table_statement)
 
             # Convert DataFrame to list of tuples (for insertion)
             data = df.values.tolist()
 
-            # Prepare insert statement
-            columns = ', '.join(df.columns)
+            # Prepare insert statement (with lowercase column names)
+            columns = ', '.join([f'"{col}"' for col in df.columns])
             values_placeholder = ', '.join(['%s'] * len(df.columns))
             insert_statement = f"INSERT INTO {table_name} ({columns}) VALUES ({values_placeholder})"
 
@@ -112,6 +125,9 @@ class DatabaseQueryTool:
         finally:
             cursor.close()
 
+        # Return DataFrame with lowercase column names for verification
+        return df
+
     def query_bigquery(self, query):
         """
         Executes a SQL query on BigQuery and retrieves the result as a pandas DataFrame.
@@ -122,55 +138,68 @@ class DatabaseQueryTool:
         Returns:
             pandas.DataFrame: Query result as a DataFrame.
         """
-        logging.info("Executing query on BigQuery...")
-        start_time = time.time()
+        try:
+            logging.info("Executing query on BigQuery...")
+            start_time = time.time()
 
-        client = self.get_bigquery_client()
-        query_job = client.query(query)
+            # Initialize the BigQuery client
+            client = self.get_bigquery_client()
+            query_job = client.query(query)
 
-        # Wait for the query to complete and fetch results
-        result = query_job.result()
-        query_time = time.time() - start_time
+            # Wait for the query to complete and fetch results
+            result = query_job.result()
+            query_time = time.time() - start_time
 
-        # Convert results to a DataFrame
-        df = result.to_dataframe()
-        
-        # Calculate statistics
-        row_count = len(df)
-        col_count = len(df.columns)
-        transmitted_bytes = result.total_bytes_processed
-        transmitted_mb = transmitted_bytes / (1024 ** 2)
-        cost_eur = transmitted_bytes * 0.00000465  # Approximate BigQuery cost per byte in EUR
-        
-        # Log statistics into DataFrame
-        self.import_logs = pd.concat(
-            [
-                self.import_logs,
-                pd.DataFrame(
-                    [
-                        {
-                            "source": "BigQuery",
-                            "query": query,
-                            "rows": row_count,
-                            "columns": col_count,
-                            "data_mb": transmitted_mb,
-                            "cost_eur": cost_eur,
-                            "time_sec": query_time,
-                            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-                        }
-                    ]
-                ),
-            ],
-            ignore_index=True,
-        )
+            # Convert results to a DataFrame
+            df = result.to_dataframe()
 
-        # Log statistics
-        logging.info(
-            f"BigQuery: Rows={row_count}, Columns={col_count}, Data={transmitted_mb:.2f} MB, "
-            f"Cost={cost_eur:.4f} EUR, Time={query_time:.2f} seconds."
-        )
+            # Fetch statistics from the QueryJob object
+            row_count = len(df)
+            col_count = len(df.columns)
+            transmitted_bytes = query_job.total_bytes_billed or 0  # Handle None gracefully
+            transmitted_mb = transmitted_bytes * 0.000001
 
-        return df
+            # Prepare the new log entry
+            new_log_entry = pd.DataFrame(
+                [
+                    {
+                        "source": "BigQuery",
+                        "query": query,
+                        "row_count": row_count,
+                        "col_count": col_count,
+                        "data_mb": transmitted_mb,
+                        "time_sec": query_time,
+                        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    }
+                ]
+            )
+
+            # Safely concatenate logs
+            if self.import_logs is None or self.import_logs.empty:
+                self.import_logs = new_log_entry
+            else:
+                self.import_logs = pd.concat(
+                    [self.import_logs, new_log_entry], ignore_index=True
+                )
+
+            # Log statistics
+            logging.info(
+                f"BigQuery: Rows={row_count}, Columns={col_count}, Data={transmitted_mb:.2f} MB, "
+                f"Time={query_time:.2f} seconds."
+            )
+
+            return df
+
+        except ImportError as e:
+            logging.error(
+                "BigQuery Storage API module is not installed. "
+                "Run 'pip install google-cloud-bigquery-storage' for faster query execution."
+            )
+            raise e
+
+        except Exception as e:
+            logging.error(f"An error occurred while executing the BigQuery query: {e}")
+            raise e
 
     def query_snowflake(self, query):
         """
@@ -198,39 +227,31 @@ class DatabaseQueryTool:
 
             query_time = time.time() - start_time
 
-            # Calculate statistics
-            row_count = len(df)
-            col_count = len(df.columns)
-            transmitted_bytes = cursor.sfqid  # Fetch query metadata (requires proper Snowflake API handling)
-            transmitted_mb = transmitted_bytes / (1024 ** 2)  # Estimate size in MB
-            cost_eur = transmitted_bytes * 0.000002  # Snowflake cost approximation per byte in EUR
-            
-            # Log statistics into DataFrame
-            self.import_logs = pd.concat(
+            # Create the log DataFrame
+            log_entry = pd.DataFrame(
                 [
-                    self.import_logs,
-                    pd.DataFrame(
-                        [
-                            {
-                                "source": "Snowflake",
-                                "query": query,
-                                "rows": row_count,
-                                "columns": col_count,
-                                "data_mb": transmitted_mb,
-                                "cost_eur": cost_eur,
-                                "time_sec": query_time,
-                                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-                            }
-                        ]
-                    ),
-                ],
-                ignore_index=True,
+                    {
+                        "source": "Snowflake",
+                        "query": query,
+                        "row_count": len(df),
+                        "col_count": len(df.columns),
+                        "data_mb": None,  # No data size
+                        "time_sec": query_time,
+                        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    }
+                ]
             )
+
+            # Drop columns that are all NA or empty to avoid the FutureWarning
+            log_entry = log_entry.dropna(axis=1, how='all')
+
+            # Concatenate the log entry to the main logs DataFrame
+            self.import_logs = pd.concat([self.import_logs, log_entry], ignore_index=True)
 
             # Log statistics
             logging.info(
-                f"Snowflake: Rows={row_count}, Columns={col_count}, Data={transmitted_mb:.2f} MB, "
-                f"Cost={cost_eur:.4f} EUR, Time={query_time:.2f} seconds."
+                f"Snowflake Query Completed: Rows={len(df)}, Columns={len(df.columns)}, "
+                f"Processing Time={query_time:.2f} seconds."
             )
 
         finally:
@@ -252,11 +273,15 @@ class DatabaseQueryTool:
             pandas.DataFrame: The joined DataFrame with selected output columns.
         """
         logging.info("Joining results...")
-        
+
         # Log initial shapes of DataFrames
         initial_df1_shape = df1.shape
         initial_df2_shape = df2.shape
         logging.info(f"Initial df1 shape: {initial_df1_shape}, df2 shape: {initial_df2_shape}")
+
+        # Convert the data types of join columns to the same type if necessary
+        df1[join_columns] = df1[join_columns].astype(str)  # Convert to string
+        df2[join_columns] = df2[join_columns].astype(str)  # Convert to string
 
         # Check for duplicated columns in both DataFrames
         duplicated_columns_df1 = df1.columns[df1.columns.duplicated()].tolist()
@@ -313,17 +338,3 @@ class DatabaseQueryTool:
         if self.bigquery_client:
             logging.info("Closing BigQuery client...")
             self.bigquery_client.close()
-
-# Function to read SQL from a file
-def read_sql_file(file_path):
-    """
-    Reads a SQL query from a file.
-
-    Args:
-        file_path (str): Path to the SQL file.
-
-    Returns:
-        str: The SQL query as a string.
-    """
-    with open(file_path, 'r') as file:
-        return file.read()

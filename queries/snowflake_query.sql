@@ -1,4 +1,12 @@
 SELECT 
-    *
+    "order_date", 
+    "order_id", 
+    "user_id", 
+    "item_sku", 
+    "item_name", 
+    "item_category_l1", 
+    "item_category_l2", 
+    "item_category_l3", 
+    "item_price"
 FROM 
-    KEBOOLA_9900.WORKSPACE_94831764."products";
+    KEBOOLA_9900.WORKSPACE_94831764."orders_items_all";
