@@ -129,9 +129,8 @@ env.bak/
 venv.bak/
 
 # Config
+config/*.json
 config/.env
-*bigquery_credentials.json
-*snowflake_credentials.json
 
 # Spyder project settings
 .spyderproject
@@ -165,8 +164,3 @@ cython_debug/
 #.idea/
 
 .DS_Store
-*/test_4o-mini.csv
-*/test_gpt-4.csv
-notebooks/experiments/results/test_4o-mini.csv
-notebooks/experiments/results/test_gpt-4.csv
-notebooks/experiments/results/test_4o-mini-final_prompt.csv
