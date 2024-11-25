@@ -130,8 +130,8 @@ venv.bak/
 
 # Config
 config/.env
-config/bigquery_credentials.json
-config/snowflake_credentials.json
+*bigquery_credentials.json
+*snowflake_credentials.json
 
 # Spyder project settings
 .spyderproject
